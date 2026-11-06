@@ -1,0 +1,333 @@
+// Generated from models: python manage.py shell < scripts/export_schema.py
+// Conditional uniqueness and CHECK constraints are summarized in table notes.
+Project ielts_volume {
+  database_type: 'PostgreSQL'
+  Note: 'IELTS Academic. One purchase = one attempt. Separate AI/mentor evaluations.'
+}
+
+Table auth_user {
+  id integer [pk, increment, not null]
+  password varchar(128) [not null]
+  last_login "timestamp with time zone"
+  is_superuser boolean [not null, note: 'Designates that this user has all permissions without explicitly assigning them.']
+  username varchar(150) [not null, unique, note: 'Required. 150 characters or fewer. Letters, digits and @/./+/-/_ only.']
+  first_name varchar(150) [not null]
+  last_name varchar(150) [not null]
+  email varchar(254) [not null]
+  is_staff boolean [not null, note: 'Designates whether the user can log into this admin site.']
+  is_active boolean [not null, note: 'Designates whether this user should be treated as active. Unselect this instead of deleting accounts.']
+  date_joined "timestamp with time zone" [not null]
+}
+
+Table accounts_profile {
+  id bigint [pk, increment, not null]
+  created_at "timestamp with time zone" [not null]
+  updated_at "timestamp with time zone" [not null]
+  user_id integer [not null, unique, ref: - auth_user.id, note: 'On delete: PROTECT']
+  role varchar(10) [not null, note: 'Choices: student, mentor']
+  phone varchar(16) [unique]
+  telegram_id bigint [unique]
+  telegram_chat_id bigint
+  phone_verified_at "timestamp with time zone"
+  language varchar(2) [not null, note: 'Choices: uz, ru, en']
+}
+
+Table accounts_telegramchallenge {
+  id bigint [pk, increment, not null]
+  created_at "timestamp with time zone" [not null]
+  updated_at "timestamp with time zone" [not null]
+  phone varchar(16) [not null]
+  telegram_id bigint [not null]
+  purpose varchar(20) [not null, note: 'Choices: register, reset_password']
+  code_hash varchar(256) [not null]
+  expires_at "timestamp with time zone" [not null]
+  consumed_at "timestamp with time zone"
+  failed_attempts smallint [not null]
+
+  indexes {
+    (telegram_id, purpose, created_at)
+  }
+  Note: 'otp_expiry_after_creation: (AND: (\'expires_at__gt\', F(created_at)))'
+}
+
+Table exams_exam {
+  id bigint [pk, increment, not null]
+  created_at "timestamp with time zone" [not null]
+  updated_at "timestamp with time zone" [not null]
+  title varchar(255) [not null]
+  slug varchar(255) [not null, unique]
+  description text [not null]
+  price "numeric(14, 2)" [not null]
+  currency varchar(3) [not null]
+  is_published boolean [not null]
+  published_at "timestamp with time zone"
+  version integer [not null]
+  previous_version_id bigint [ref: > exams_exam.id, note: 'On delete: PROTECT']
+
+  indexes {
+    (is_published, created_at)
+  }
+  Note: 'exams_exam_price_nonnegative: (AND: (\'price__gte\', 0)); exams_exam_version_positive: (AND: (\'version__gt\', 0))'
+}
+
+Table exams_mentoroffer {
+  id bigint [pk, increment, not null]
+  created_at "timestamp with time zone" [not null]
+  updated_at "timestamp with time zone" [not null]
+  exam_id bigint [not null, ref: > exams_exam.id, note: 'On delete: PROTECT']
+  mentor_id bigint [not null, ref: > accounts_profile.id, note: 'On delete: PROTECT']
+  surcharge "numeric(14, 2)" [not null]
+  is_active boolean [not null]
+
+  indexes {
+    (exam_id, mentor_id) [unique]
+  }
+  Note: 'exams_mentoroffer_surcharge_nonnegative: (AND: (\'surcharge__gte\', 0))'
+}
+
+Table exams_section {
+  id bigint [pk, increment, not null]
+  exam_id bigint [not null, ref: > exams_exam.id, note: 'On delete: PROTECT']
+  skill varchar(10) [not null, note: 'Choices: listening, reading, writing, speaking']
+  title varchar(255) [not null]
+  instructions text [not null]
+  position smallint [not null]
+  duration_seconds integer [not null]
+
+  indexes {
+    (exam_id, position) [unique]
+    (exam_id, skill) [unique]
+  }
+  Note: 'exams_section_position_positive: (AND: (\'position__gt\', 0)); exams_section_duration_seconds_positive: (AND: (\'duration_seconds__gt\', 0))'
+}
+
+Table exams_questiongroup {
+  id bigint [pk, increment, not null]
+  section_id bigint [not null, ref: > exams_section.id, note: 'On delete: PROTECT']
+  title varchar(255) [not null]
+  content text [not null]
+  asset varchar(100) [not null]
+  position smallint [not null]
+  preparation_seconds integer [not null]
+  response_seconds integer
+
+  indexes {
+    (section_id, position) [unique]
+  }
+  Note: 'exams_questiongroup_position_positive: (AND: (\'position__gt\', 0)); exams_questiongroup_response_seconds_positive: (AND: (\'response_seconds__gt\', 0))'
+}
+
+Table exams_question {
+  id bigint [pk, increment, not null]
+  group_id bigint [not null, ref: > exams_questiongroup.id, note: 'On delete: PROTECT']
+  kind varchar(25) [not null, note: 'Choices: single_choice, multiple_choice, short_answer, true_false_not_given, yes_no_not_given, matching, essay, audio_response']
+  prompt text [not null]
+  position smallint [not null]
+  max_score "numeric(7, 2)" [not null]
+  answer_key jsonb [note: 'Private. Never expose during an active attempt.']
+  explanation text [not null]
+  config jsonb [not null, note: 'Word limits, matching layout, Writing task weight, etc.']
+
+  indexes {
+    (group_id, position) [unique]
+  }
+  Note: 'exams_question_position_positive: (AND: (\'position__gt\', 0)); exams_question_max_score_positive: (AND: (\'max_score__gt\', 0))'
+}
+
+Table exams_questionoption {
+  id bigint [pk, increment, not null]
+  question_id bigint [not null, ref: > exams_question.id, note: 'On delete: PROTECT']
+  label varchar(20) [not null]
+  content text [not null]
+  position smallint [not null]
+
+  indexes {
+    (question_id, label) [unique]
+    (question_id, position) [unique]
+  }
+  Note: 'exams_questionoption_position_positive: (AND: (\'position__gt\', 0))'
+}
+
+Table billing_paymentaccount {
+  id bigint [pk, increment, not null]
+  created_at "timestamp with time zone" [not null]
+  updated_at "timestamp with time zone" [not null]
+  label varchar(100) [not null]
+  holder_name varchar(150) [not null]
+  card_number varchar(19) [not null]
+  instructions text [not null]
+  is_active boolean [not null]
+}
+
+Table billing_order {
+  id bigint [pk, increment, not null]
+  created_at "timestamp with time zone" [not null]
+  updated_at "timestamp with time zone" [not null]
+  reference uuid [not null, unique]
+  user_id integer [not null, ref: > auth_user.id, note: 'On delete: PROTECT']
+  exam_id bigint [not null, ref: > exams_exam.id, note: 'On delete: PROTECT']
+  mentor_id bigint [ref: > accounts_profile.id, note: 'On delete: PROTECT']
+  exam_title varchar(255) [not null]
+  mentor_name varchar(150) [not null]
+  base_price "numeric(14, 2)" [not null]
+  mentor_price "numeric(14, 2)" [not null]
+  total_amount "numeric(14, 2)" [not null]
+  currency varchar(3) [not null]
+  status varchar(15) [not null, note: 'Choices: pending, under_review, paid, cancelled, refunded']
+  paid_at "timestamp with time zone"
+
+  indexes {
+    (user_id, created_at)
+    (status, created_at)
+  }
+  Note: 'billing_order_base_price_nonnegative: (AND: (\'base_price__gte\', 0)); billing_order_mentor_price_nonnegative: (AND: (\'mentor_price__gte\', 0)); billing_order_total_amount_nonnegative: (AND: (\'total_amount__gte\', 0)); order_total_matches_prices: (AND: (\'total_amount\', <CombinedExpression: F(base_price) + F(mentor_price)>)); mentor_price_requires_mentor: (OR: (\'mentor__isnull\', False), (\'mentor_price\', 0)); paid_order_has_timestamp: (OR: (NOT (AND: (\'status\', \'paid\'))), (\'paid_at__isnull\', False))'
+}
+
+Table billing_paymentreceipt {
+  id bigint [pk, increment, not null]
+  created_at "timestamp with time zone" [not null]
+  updated_at "timestamp with time zone" [not null]
+  order_id bigint [not null, ref: > billing_order.id, note: 'On delete: PROTECT']
+  payment_account_id bigint [not null, ref: > billing_paymentaccount.id, note: 'On delete: PROTECT']
+  image varchar(100) [not null]
+  status varchar(10) [not null, note: 'Choices: pending, approved, rejected']
+  reviewed_by_id integer [ref: > auth_user.id, note: 'On delete: PROTECT']
+  reviewed_at "timestamp with time zone"
+  review_note text [not null]
+
+  indexes {
+    (status, created_at)
+  }
+  Note: 'one_approved_receipt_per_order: (AND: (\'status\', \'approved\')); receipt_review_has_reviewer_and_time: (OR: (AND: (\'reviewed_at__isnull\', True), (\'reviewed_by__isnull\', True), (\'status\', \'pending\')), (AND: (\'reviewed_at__isnull\', False), (\'reviewed_by__isnull\', False), (\'status__in\', [\'approved\', \'rejected\'])))'
+}
+
+Table billing_accessgrant {
+  id bigint [pk, increment, not null]
+  created_at "timestamp with time zone" [not null]
+  updated_at "timestamp with time zone" [not null]
+  order_id bigint [not null, unique, ref: - billing_order.id, note: 'On delete: PROTECT']
+  granted_by_id integer [not null, ref: > auth_user.id, note: 'On delete: PROTECT']
+  granted_at "timestamp with time zone" [not null]
+  revoked_at "timestamp with time zone"
+  revocation_reason text [not null]
+}
+
+Table attempts_attempt {
+  id bigint [pk, increment, not null]
+  created_at "timestamp with time zone" [not null]
+  updated_at "timestamp with time zone" [not null]
+  access_id bigint [not null, unique, ref: - billing_accessgrant.id, note: 'On delete: PROTECT']
+  status varchar(15) [not null, note: 'Choices: in_progress, submitted']
+  started_at "timestamp with time zone" [not null]
+  submitted_at "timestamp with time zone"
+  Note: 'attempt_submission_state_valid: (OR: (AND: (\'status\', \'in_progress\'), (\'submitted_at__isnull\', True)), (AND: (\'status\', \'submitted\'), (\'submitted_at__gte\', F(started_at)))); submitted_attempt_has_time: (OR: (NOT (AND: (\'status\', \'submitted\'))), (\'submitted_at__isnull\', False))'
+}
+
+Table attempts_attemptsection {
+  id bigint [pk, increment, not null]
+  created_at "timestamp with time zone" [not null]
+  updated_at "timestamp with time zone" [not null]
+  attempt_id bigint [not null, ref: > attempts_attempt.id, note: 'On delete: PROTECT']
+  section_id bigint [not null, ref: > exams_section.id, note: 'On delete: PROTECT']
+  started_at "timestamp with time zone"
+  deadline_at "timestamp with time zone"
+  submitted_at "timestamp with time zone"
+
+  indexes {
+    (attempt_id, section_id) [unique]
+  }
+  Note: 'section_deadline_valid: (OR: (AND: (\'deadline_at__isnull\', True), (\'started_at__isnull\', True)), (AND: (\'deadline_at__gt\', F(started_at)), (\'deadline_at__isnull\', False), (\'started_at__isnull\', False))); section_submission_time_valid: (OR: (\'submitted_at__isnull\', True), (AND: (\'started_at__isnull\', False), (\'submitted_at__gte\', F(started_at))))'
+}
+
+Table attempts_answer {
+  id bigint [pk, increment, not null]
+  created_at "timestamp with time zone" [not null]
+  updated_at "timestamp with time zone" [not null]
+  attempt_section_id bigint [not null, ref: > attempts_attemptsection.id, note: 'On delete: PROTECT']
+  question_id bigint [not null, ref: > exams_question.id, note: 'On delete: PROTECT']
+  response jsonb [not null]
+  audio varchar(100) [not null]
+  recording_started_at "timestamp with time zone"
+  recording_submitted_at "timestamp with time zone"
+
+  indexes {
+    (attempt_section_id, question_id) [unique]
+  }
+  Note: 'recording_submission_time_valid: (OR: (\'recording_submitted_at__isnull\', True), (AND: (\'recording_started_at__isnull\', False), (\'recording_submitted_at__gte\', F(recording_started_at))))'
+}
+
+Table attempts_evaluation {
+  id bigint [pk, increment, not null]
+  created_at "timestamp with time zone" [not null]
+  updated_at "timestamp with time zone" [not null]
+  attempt_id bigint [not null, ref: > attempts_attempt.id, note: 'On delete: PROTECT']
+  source varchar(6) [not null, note: 'Choices: ai, mentor']
+  mentor_id bigint [ref: > accounts_profile.id, note: 'On delete: PROTECT']
+  status varchar(12) [not null, note: 'Choices: pending, processing, completed, failed']
+  overall_band "numeric(2, 1)"
+  feedback text [not null]
+  due_at "timestamp with time zone"
+  completed_at "timestamp with time zone"
+  metadata jsonb [not null]
+
+  indexes {
+    (attempt_id, source) [unique]
+    (mentor_id, status, due_at)
+  }
+  Note: 'evaluation_source_matches_mentor: (OR: (AND: (\'due_at__isnull\', True), (\'mentor__isnull\', True), (\'source\', \'ai\')), (AND: (\'due_at__isnull\', False), (\'mentor__isnull\', False), (\'source\', \'mentor\'))); completed_evaluation_has_time: (OR: (NOT (AND: (\'status\', \'completed\'))), (\'completed_at__isnull\', False)); attempts_evaluation_overall_band_valid: (OR: (\'overall_band__isnull\', True), (\'overall_band__in\', [Decimal(\'0\'), Decimal(\'0.5\'), Decimal(\'1\'), Decimal(\'1.5\'), Decimal(\'2\'), Decimal(\'2.5\'), Decimal(\'3\'), Decimal(\'3.5\'), Decimal(\'4\'), Decimal(\'4.5\'), Decimal(\'5\'), Decimal(\'5.5\'), Decimal(\'6\'), Decimal(\'6.5\'), Decimal(\'7\'), Decimal(\'7.5\'), Decimal(\'8\'), Decimal(\'8.5\'), Decimal(\'9\')]))'
+}
+
+Table attempts_sectionevaluation {
+  id bigint [pk, increment, not null]
+  created_at "timestamp with time zone" [not null]
+  updated_at "timestamp with time zone" [not null]
+  evaluation_id bigint [not null, ref: > attempts_evaluation.id, note: 'On delete: PROTECT']
+  attempt_section_id bigint [not null, ref: > attempts_attemptsection.id, note: 'On delete: PROTECT']
+  raw_score "numeric(9, 2)"
+  band_score "numeric(2, 1)"
+  feedback text [not null]
+  audio_feedback varchar(100) [not null]
+  criteria jsonb [not null, note: 'Writing/Speaking criterion scores and explanations.']
+
+  indexes {
+    (evaluation_id, attempt_section_id) [unique]
+  }
+  Note: 'attempts_sectionevaluation_raw_score_nonnegative: (AND: (\'raw_score__gte\', 0)); attempts_sectionevaluation_band_score_valid: (OR: (\'band_score__isnull\', True), (\'band_score__in\', [Decimal(\'0\'), Decimal(\'0.5\'), Decimal(\'1\'), Decimal(\'1.5\'), Decimal(\'2\'), Decimal(\'2.5\'), Decimal(\'3\'), Decimal(\'3.5\'), Decimal(\'4\'), Decimal(\'4.5\'), Decimal(\'5\'), Decimal(\'5.5\'), Decimal(\'6\'), Decimal(\'6.5\'), Decimal(\'7\'), Decimal(\'7.5\'), Decimal(\'8\'), Decimal(\'8.5\'), Decimal(\'9\')]))'
+}
+
+Table attempts_answerevaluation {
+  id bigint [pk, increment, not null]
+  created_at "timestamp with time zone" [not null]
+  updated_at "timestamp with time zone" [not null]
+  section_evaluation_id bigint [not null, ref: > attempts_sectionevaluation.id, note: 'On delete: PROTECT']
+  answer_id bigint [not null, ref: > attempts_answer.id, note: 'On delete: PROTECT']
+  score "numeric(7, 2)"
+  feedback text [not null]
+
+  indexes {
+    (section_evaluation_id, answer_id) [unique]
+  }
+  Note: 'attempts_answerevaluation_score_nonnegative: (AND: (\'score__gte\', 0))'
+}
+
+Table notifications_notification {
+  id bigint [pk, increment, not null]
+  created_at "timestamp with time zone" [not null]
+  updated_at "timestamp with time zone" [not null]
+  recipient_id integer [not null, ref: > auth_user.id, note: 'On delete: PROTECT']
+  channel varchar(10) [not null, note: 'Choices: site, telegram']
+  event varchar(60) [not null]
+  deduplication_key varchar(180) [not null]
+  payload jsonb [not null]
+  status varchar(10) [not null, note: 'Choices: pending, sent, failed']
+  sent_at "timestamp with time zone"
+  read_at "timestamp with time zone"
+  delivery_attempts integer [not null]
+  last_error text [not null]
+
+  indexes {
+    (recipient_id, channel, deduplication_key) [unique]
+    (recipient_id, channel, read_at)
+    (channel, status, created_at)
+  }
+}
